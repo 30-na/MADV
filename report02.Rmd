@@ -1,0 +1,101 @@
+---
+title: "Compare the Proportion of infected Mosquitoes Over Time"
+output: pdf_document
+date: ""
+---
+
+```{r echo = F, warning=FALSE, message=FALSE}
+# Load libraries
+library(readxl)
+library(dplyr)
+library(ggplot2)
+library(knitr)
+library(kableExtra)
+```
+
+
+## 1. Chi-square Test for Aedes albopictus
+
+We used a Chi-square test to see if the proportion of mosquitoes testing positive for infection, dissemination, or transmission changes across dpi (days post-infection) for Aedes albopictus. The test compares observed counts to what we’d expect if dpi had no effect. The null hypothesis says the proportion of positive mosquitoes stays the same over time. We found a significant difference for infection ($p < 0.001$), but not for dissemination ($p = 0.066$) or transmission ($p = 0.111$). This suggests infection changes with time, but no significant change for dissemination and transmission.
+
+```{r echo = F, warning=FALSE, message=FALSE}
+# Load data
+# Load data
+df <- readxl::read_excel("madv_df_03_27_2025_for Martial.xlsx")
+
+# Prepare indicators
+df <- df %>%
+  mutate(
+    Infection = ifelse(Tissue == "Body" & qRT_PCR_result == "Pos", 1, 0),
+    Dissemination = ifelse(Tissue == "Legs" & qRT_PCR_result == "Pos", 1, 0),
+    Transmission = ifelse(Tissue == "Saliva" & qRT_PCR_result == "Pos", 1, 0),
+    dpi = as.numeric(dpi)
+  )
+
+# Filter for Aedes albopictus
+albopictus_df <- df %>%
+  filter(Mosquito_specie == "Aedes_albopictus")
+
+# Chi-square test function
+run_chi2 <- function(data, tissue, outcome) {
+  tbl <- table(data %>% filter(Tissue == tissue) %>% select(dpi, all_of(outcome)))
+  result <- chisq.test(tbl)
+  tibble::tibble(
+    Category = outcome,
+    Statistic = round(result$statistic, 2),
+    df = result$parameter,
+    p_value = signif(result$p.value, 3)
+  )
+}
+
+# Run tests and combine results
+results_table <- dplyr::bind_rows(
+  run_chi2(albopictus_df, "Body", "Infection"),
+  run_chi2(albopictus_df, "Legs", "Dissemination"),
+  run_chi2(albopictus_df, "Saliva", "Transmission")
+)
+
+# Print ltable
+results_table %>%
+  kable(format = "latex", booktabs = TRUE, caption = "Chi-square test results for Aedes albopictus") %>%
+  kable_styling(latex_options = c("hold_position", "striped"))
+
+```
+
+```{r echo = F, warning=FALSE, message=FALSE, fig.height=3, fig.width=6}
+# Prepare proportions by dpi
+plot_df <- albopictus_df %>%
+  mutate(Category = case_when(
+    Tissue == "Body" ~ "Infection",
+    Tissue == "Legs" ~ "Dissemination",
+    Tissue == "Saliva" ~ "Transmission"
+  )) %>%
+  group_by(
+    Category, dpi
+    ) %>%
+  summarise(
+    Proportion_Positive = mean(qRT_PCR_result == "Pos"),
+    .groups = "drop"
+    )
+
+ggplot(plot_df, aes(x = dpi, y = Proportion_Positive, color = Category)) +
+  geom_line(size = 1) +
+  geom_point(size = 2) +
+  scale_color_brewer(palette = "Set1") +
+  labs(
+    title = "Aedes albopictus: Infection, Dissemination, and Transmission Rates",
+    x = "DPI",
+    y = "Proportion Positive",
+    color = NULL
+  ) +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
+  theme_minimal(base_size = 10) +
+  theme(
+    plot.title = element_text(hjust = 0.5),
+    legend.position = "bottom",
+    panel.grid.minor = element_blank()
+  )
+
+```
+
+
