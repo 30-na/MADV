@@ -1,0 +1,163 @@
+---
+title: "Statistical Test for Detecting Differences Between Two Time Trends"
+output: pdf_document
+date: ""
+---
+
+```{r echo = F, warning=FALSE, message=FALSE}
+# Load libraries
+library(dplyr)
+library(ggplot2)
+library(lme4)
+library(readxl)
+```
+## 1. Exploratory Overview of the Experiment
+
+This dataset originates from a vector competence experiment and investigating whether two mosquito species: 1. Aedes aegypti and 2. Aedes albopictus can become infected with and transmit a virus over time.
+
+```{r echo = F, warning=FALSE, message=FALSE}
+# Load and prepare data
+df <- read_excel("madv_df_03_27_2025_for Martial.xlsx")
+
+df_plot <- df %>%
+  mutate(
+    Infected = ifelse(qRT_PCR_result == "Pos", 1, 0),
+    Mosquito_specie = as.factor(Mosquito_specie),
+    dpi = as.numeric(dpi)
+  )
+
+# Aggregate infection rate by species and dpi
+trend_df <- df_plot %>%
+  group_by(Mosquito_specie, dpi) %>%
+  summarise(
+    Infection_Rate = mean(Infected)
+  )
+
+# Plot
+ggplot(trend_df, aes(x = dpi, y = Infection_Rate, color = Mosquito_specie)) +
+  geom_line(size = 1) +
+  geom_point(size = 2) +
+  labs(
+    title = "Infection Rate Over Time by Mosquito Species",
+    x = "Days Post-Infection (DPI)",
+    y = "Proportion Infected",
+    color = "Mosquito Species"
+  ) +
+  theme_minimal()
+```
+
+### Experimental Design Summary
+
+- *Mosquito species*: Aedes aegypti, Aedes albopictus.
+- *Time points*: 3, 7, 14, and 21 days post-infection (dpi)
+- *Replicates*: 2 biological replicates
+- **Tissue types sampled**:
+  - `Body`: assesses infection
+  - `Legs`: assesses dissemination
+  - `Saliva`: assesses transmission
+- **Virus detection method**: qRT-PCR
+  - Binary outcome: `Pos` (positive) or `Neg` (negative)
+
+### Variables of Interest
+
+- **Predictors**: mosquito species (`Mosquito_specie`), days post-infection (`dpi`)
+- **Outcomes**:
+  - **Infection** – determined by qRT-PCR result from `Body`
+  - **Dissemination** – determined by qRT-PCR result from `Legs`
+  - **Transmission** – determined by qRT-PCR result from `Saliva`
+
+### Main Research Question
+
+> Do the temporal trends of infection, dissemination, and transmission significantly differ between Aedes aegypti and Aedes albopictus?
+
+---
+
+## 2. Statistical Modeling
+
+### 2.1 Logistic Regression for Infection
+
+To evaluate the effect of mosquito species and dpi on infection status, we fit a logistic regression model.
+
+### Hypotheses
+
+- **Null hypothesis** ($H_0$): The effect of dpi on infection probability is the same for both species.
+- **Alternative hypothesis** ($H_1$): The effect of dpi on infection probability differs between species.
+
+
+### Model Formula
+
+We model the log-odds of infection using the logistic regression model:
+
+$$
+\log\left(\frac{p}{1 - p}\right) = \beta_0 + \beta_1 \cdot \text{Species} + \beta_2 \cdot \text{dpi} + \beta_3 \cdot (\text{Species} \times \text{dpi})
+$$
+
+ - where $p$ is the probability of infection (i.e., positive qRT-PCR result for body tissue).
+
+
+
+
+```{r echo = F, fig.height=4, include=FALSE}
+# Filter and prepare data
+df <- readxl::read_excel("madv_df_03_27_2025_for Martial.xlsx")
+df_cleaned <- df %>%
+  mutate(
+    Infection = ifelse(Tissue == "Body" & qRT_PCR_result == "Pos", 1, 0),
+    Mosquito_specie = as.factor(Mosquito_specie),
+    dpi = as.numeric(dpi)
+  ) %>%
+  filter(Tissue == "Body")
+
+# Fit logistic regression
+model <- glm(Infection ~ Mosquito_specie * dpi,
+             family = binomial, 
+             data = df_cleaned)
+
+# Predicted probabilities
+df_cleaned$predicted_prob <- predict(model, type = "response")
+
+
+# Plot predicted probabilities
+ggplot(df_cleaned, 
+       aes(x = dpi, y = predicted_prob, color = Mosquito_specie)
+       ) +
+  geom_line(
+    stat = "summary",
+    fun = mean
+    ) +
+  geom_point(
+    alpha = 0.3
+    ) +
+  labs(
+    title = "Predicted Infection Probability by DPI and Species",
+    y = "Predicted Probability",
+    x = "Days Post-Infection (DPI)") +
+  theme_minimal()
+# summary(model)
+
+```
+
+
+
+
+
+
+### 2.2 Mixed-Effects Logistic Regression for Infection
+
+To consider for experimental replication, we extend the previous model by fitting a mixed-effects logistic regression model. This allows us to model infection probability while adjusting for potential variation between biological replicates.
+
+Hypotheses:
+
+- Null hypothesis ($H0$): The effect of dpi on infection probability is the same for both species, and replicates do not influence the results.
+- Alternative hypothesis ($H_1$): The effect of dpi on infection probability differs between species, after adjusting for replicate-level variability.
+
+
+###  2.3 Bayesian Logistic Regression for Infection
+
+We fit a Bayesian logistic regression model. This approach allows estimating the probability that infection rates differ by species and time, using Bayesian inference.
+
+Hypotheses:
+
+- Null hypothesis ($H_0$): There is no effect of dpi, species, or their interaction on infection probability.
+- Alternative hypothesis ($H_1$): There is an effect of at least one predictor on infection probability, with uncertainty expressed via posterior distributions.
+
