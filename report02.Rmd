@@ -50,7 +50,7 @@ run_chi2 <- function(data, tissue, outcome) {
 
 # Run tests and combine results
 results_table <- dplyr::bind_rows(
-  run_chi2(albopictus_df, "Body", "Infection"),
+  run_chi2(data=albopictus_df, tissue="Body", outcome="Infection"),
   run_chi2(albopictus_df, "Legs", "Dissemination"),
   run_chi2(albopictus_df, "Saliva", "Transmission")
 )
