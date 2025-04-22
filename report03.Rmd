@@ -1,0 +1,314 @@
+---
+title: "Bayesian Logistic Regression"
+output: pdf_document
+date: ""
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r echo = F, warning=FALSE, message=FALSE}
+# Load libraries
+library(readxl)
+library(dplyr)
+library(ggplot2)
+library(knitr)
+library(kableExtra)
+library(brms)
+library(bayesplot)
+library(purrr)
+library(gridExtra)
+```
+
+
+```{r echo = F}
+df <- readxl::read_excel("madv_df_03_27_2025_for Martial.xlsx")
+
+# Prepare indicators
+df <- df %>%
+  mutate(
+    Infection = ifelse(Tissue == "Body" & qRT_PCR_result == "Pos", 1, 0),
+    Dissemination = ifelse(Tissue == "Legs" & qRT_PCR_result == "Pos", 1, 0),
+    Transmission = ifelse(Tissue == "Saliva" & qRT_PCR_result == "Pos", 1, 0),
+    dpi = as.numeric(dpi)
+  )
+
+dpi_levels <- sort(unique(df$dpi))
+```
+
+###  1 Bayesian Logistic Regression
+
+In this analysis, we used Bayesian logistic regression to model the probability of infection in mosquitoes as a function of species at each time point (dpi). For each dpi, a separate model was fit to estimate the difference in infection risk between Aedes albopictus and the baseline species, Aedes aegypti, using the log-odds scale. The key parameter of interest, $\beta_1$, represents the difference in log odds of infection between the two species. We have used the same modeling framework for Infection, Dissemination, and Transmission. These separate models allow us to examine how species differences evolve over time for each stage.
+
+# Infection Rate
+
+
+```{r infection-model, cache=TRUE, echo=FALSE,message=F, warning=F}
+
+fit_list_infection <- list()
+
+for (d in dpi_levels) {
+  df_sub <- df %>% filter(dpi == d)
+  fit <- brm(
+    Infection ~ Mosquito_specie,
+    data = df_sub,
+    family = bernoulli(),
+    prior = prior(normal(0, 2.5), class = "b"),
+    chains = 2,
+    iter = 10000,
+    warmup = 1000,
+    refresh = 0,
+    seed = 123
+  )
+  fit_list_infection[[as.character(d)]] <- fit
+}
+```
+
+The coefficient \( \beta_1 \) represents the difference in log-odds of infection between \textit{Aedes albopictus} and the baseline species, \textit{Aedes aegypti}. The logistic regression model is written as:
+
+$$
+\log\left( \frac{\Pr(\text{Infection} = 1)}{1 - \Pr(\text{Infection} = 1)} \right)
+= \beta_0 + \beta_1 \cdot 1_{\{\text{Species} = \text{albopictus}\}}
+$$
+
+
+\begin{itemize}
+  \item \( \beta_1 > 0 \): \textit{Aedes albopictus} has higher log-odds of infection than \textit{Aedes aegypti}, meaning it is more likely to be infected.
+  \item \( \beta_1 = 0 \): There is no difference in infection odds between the two species.
+  \item \( \beta_1 < 0 \): \textit{Aedes albopictus} has lower log-odds of infection than \textit{Aedes aegypti}, meaning it is less likely to be infected.
+\end{itemize}
+
+
+
+
+```{r echo=F}
+
+plot_data <- map_dfr(names(fit_list_infection), function(d) {
+  posterior <- as_draws_df(fit_list_infection[[d]])
+  data.frame(
+    dpi = as.numeric(d),
+    mean = mean(posterior[["b_Mosquito_specieAedes_albopictus"]]),
+    lower = quantile(posterior[["b_Mosquito_specieAedes_albopictus"]], 0.025),
+    upper = quantile(posterior[["b_Mosquito_specieAedes_albopictus"]], 0.975)
+  )
+})
+
+
+plot_data$dpi <- as.numeric(plot_data$dpi)
+
+ggplot(plot_data, aes(x = dpi, y = mean)) +
+  geom_point() +
+  geom_errorbar(aes(ymin = lower, ymax = upper), width = 0.3) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  labs(
+    x = "Days Post-Infection (dpi)",
+    y = "Posterior mean (95% CI) of Species coefficient",
+    title = "Bayesian Logistic Regression: Infection ~ Species by dpi"
+  ) +
+  theme_minimal()
+
+```
+
+
+```{r echo = F}
+# Round and rename
+latex_tbl <- plot_data %>%
+  arrange(dpi) %>%
+  mutate(
+    Mean = round(mean, 2),
+    `2.5%` = round(lower, 2),
+    `97.5%` = round(upper, 2)
+  ) %>%
+  select(`dpi`, Mean, `2.5%`, `97.5%`)
+
+kable(latex_tbl,
+      format = "latex",
+      booktabs = TRUE,
+      row.names = FALSE,
+      caption = "Posterior estimates for the Species effect (Aedes albopictus vs. Aedes aegypti) across dpi.")%>%
+  kable_styling(latex_options = "HOLD_position")
+```
+
+### Trace Plots
+
+```{r echo = F}
+
+# Extract posterior draws for each dpi manually
+fit3 <- fit_list_infection[["3"]]
+post3 <- as_draws_df(fit3)
+plot3 <- mcmc_trace(post3, pars = "b_Mosquito_specieAedes_albopictus") +
+  ggtitle("dpi = 3") +
+  labs(
+    y = expression(beta[1])
+  )
+
+fit7 <- fit_list_infection[["7"]]
+post7 <- as_draws_df(fit7)
+plot7 <- mcmc_trace(post7, pars = "b_Mosquito_specieAedes_albopictus") +
+  ggtitle("dpi = 7")+
+  labs(
+    y = expression(beta[1])
+  )
+
+fit14 <- fit_list_infection[["14"]]
+post14 <- as_draws_df(fit14)
+plot14 <- mcmc_trace(post14, pars = "b_Mosquito_specieAedes_albopictus") +
+  ggtitle("dpi = 14")+
+  labs(
+    y = expression(beta[1])
+  )
+
+fit21 <- fit_list_infection[["21"]]
+post21 <- as_draws_df(fit21)
+plot21 <- mcmc_trace(post21, pars = "b_Mosquito_specieAedes_albopictus") +
+  ggtitle("dpi = 21")+
+  labs(
+    y = expression(beta[1])
+  )
+
+# Arrange them in 4 rows
+grid.arrange(plot3, plot7, plot14, plot21, nrow = 4)
+
+```
+
+\newpage
+
+## Dissemination Rate
+
+
+```{r dissemination-model, cache=TRUE, echo=FALSE,message=F, warning=F}
+
+fit_list_dissemination <- list()
+
+for (d in dpi_levels) {
+  df_sub <- df %>% filter(dpi == d)
+  fit <- brm(
+    Dissemination ~ Mosquito_specie,
+    data = df_sub,
+    family = bernoulli(),
+    prior = prior(normal(0, 2.5), class = "b"),
+    chains = 2,
+    iter = 10000,
+    warmup = 1000,
+    refresh = 0,
+    seed = 123
+  )
+  fit_list_dissemination[[as.character(d)]] <- fit
+}
+
+```
+
+
+```{r echo=F}
+plot_data_d <- map_dfr(names(fit_list_dissemination), function(d) {
+  posterior <- as_draws_df(fit_list_dissemination[[d]])
+  data.frame(
+    dpi = as.numeric(d),
+    mean = mean(posterior[["b_Mosquito_specieAedes_albopictus"]]),
+    lower = quantile(posterior[["b_Mosquito_specieAedes_albopictus"]], 0.025),
+    upper = quantile(posterior[["b_Mosquito_specieAedes_albopictus"]], 0.975)
+  )
+})
+
+ggplot(plot_data_d, aes(x = dpi, y = mean)) +
+  geom_point() +
+  geom_errorbar(aes(ymin = lower, ymax = upper), width = 0.3) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  labs(
+    x = "Days Post-Infection (dpi)",
+    y = "Posterior mean (95% CI) of Species coefficient",
+    title = "Bayesian Logistic Regression: Dissemination ~ Species by dpi"
+  ) +
+  theme_minimal()
+
+```
+
+```{r echo =F}
+latex_tbl_d <- plot_data_d %>%
+  arrange(dpi) %>%
+  mutate(
+    Mean = round(mean, 2),
+    `2.5%` = round(lower, 2),
+    `97.5%` = round(upper, 2)
+  ) %>%
+  select(`dpi`, Mean, `2.5%`, `97.5%`)
+
+kable(latex_tbl_d,
+      format = "latex",
+      booktabs = TRUE,
+      row.names = FALSE,
+      caption = "Posterior estimates for Species effect on Dissemination across dpi.")%>%
+  kable_styling(latex_options = "HOLD_position")
+
+```
+
+\newpage
+
+## Transmission Rate
+
+```{r transmission-model, cache=TRUE, echo=FALSE,message=F, warning=F}
+
+fit_list_transmission <- list()
+
+for (d in dpi_levels) {
+  df_sub <- df %>% filter(dpi == d)
+  fit <- brm(
+    Transmission ~ Mosquito_specie,
+    data = df_sub,
+    family = bernoulli(),
+    prior = prior(normal(0, 2.5), class = "b"),
+    chains = 2,
+    iter = 10000,
+    warmup = 1000,
+    refresh = 0,
+    seed = 123
+  )
+  fit_list_transmission[[as.character(d)]] <- fit
+}
+
+```
+
+```{r echo=F}
+plot_data_t <- map_dfr(names(fit_list_transmission), function(d) {
+  posterior <- as_draws_df(fit_list_transmission[[d]])
+  data.frame(
+    dpi = as.numeric(d),
+    mean = mean(posterior[["b_Mosquito_specieAedes_albopictus"]]),
+    lower = quantile(posterior[["b_Mosquito_specieAedes_albopictus"]], 0.025),
+    upper = quantile(posterior[["b_Mosquito_specieAedes_albopictus"]], 0.975)
+  )
+})
+
+ggplot(plot_data_t, aes(x = dpi, y = mean)) +
+  geom_point() +
+  geom_errorbar(aes(ymin = lower, ymax = upper), width = 0.3) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  labs(
+    x = "Days Post-Infection (dpi)",
+    y = "Posterior mean (95% CI) of Species coefficient",
+    title = "Bayesian Logistic Regression: Transmission ~ Species by dpi"
+  ) +
+  theme_minimal()
+
+```
+
+```{r echo= F}
+latex_tbl_t <- plot_data_t %>%
+  arrange(dpi) %>%
+  mutate(
+    Mean = round(mean, 2),
+    `2.5%` = round(lower, 2),
+    `97.5%` = round(upper, 2)
+  ) %>%
+  select(`dpi`, Mean, `2.5%`, `97.5%`)
+
+kable(latex_tbl_t,
+      format = "latex",
+      booktabs = TRUE,
+      row.names = FALSE,
+      caption = "Posterior estimates for Species effect on Transmission across dpi.")%>%
+  kable_styling(latex_options = "HOLD_position")
+
+```
+

@@ -1,0 +1,10 @@
+readxl
+dplyr
+ggplot2
+knitr
+kableExtra
+Rcpp
+brms
+bayesplot
+purrr
+gridExtra
